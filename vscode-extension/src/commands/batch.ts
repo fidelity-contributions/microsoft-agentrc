@@ -1,7 +1,15 @@
-import * as vscode from "vscode";
-import { generateCopilotInstructions, loadAgentrcConfig, safeWriteFile } from "../services.js";
-import { VscodeProgressReporter } from "../progress.js";
 import path from "node:path";
+
+import * as vscode from "vscode";
+
+import { VscodeProgressReporter } from "../progress.js";
+import {
+  generateCopilotInstructions,
+  generateNestedInstructions,
+  loadAgentrcConfig,
+  safeWriteFile,
+  writeNestedInstructions
+} from "../services.js";
 
 export async function batchInstructionsCommand(): Promise<void> {
   const folders = vscode.workspace.workspaceFolders;
@@ -34,35 +42,57 @@ export async function batchInstructionsCommand(): Promise<void> {
         const workspacePath = folder.uri.fsPath;
         const name = folder.name;
         try {
-          let outputPath = path.join(workspacePath, ".github", "copilot-instructions.md");
-          try {
-            const config = await loadAgentrcConfig(workspacePath);
-            if (config?.strategy === "nested") {
-              outputPath = path.join(workspacePath, "AGENTS.md");
+          const config = await loadAgentrcConfig(workspacePath).catch(() => undefined);
+
+          if (config?.strategy === "nested") {
+            const detailDir = config.detailDir ?? ".agents";
+            const claudeMd = config.claudeMd ?? false;
+
+            reporter.update(`[${name}] Generating nested instructions…`);
+            const nestedResult = await generateNestedInstructions({
+              repoPath: workspacePath,
+              model,
+              onProgress: (msg) => reporter.update(`[${name}] ${msg}`),
+              detailDir,
+              claudeMd
+            });
+
+            const actions = await writeNestedInstructions(workspacePath, nestedResult, false);
+            if (actions.some((a) => a.action === "wrote")) {
+              wrote++;
+            } else {
+              skipped++;
+              reporter.update(
+                `[${name}] Skipped: no files written (${Array.from(new Set(actions.map((a) => a.action))).join(", ")})`
+              );
             }
-          } catch {
-            // Non-fatal
-          }
 
-          reporter.update(`[${name}] Generating…`);
-          const content = await generateCopilotInstructions({
-            repoPath: workspacePath,
-            model
-          });
-
-          if (!content) {
-            skipped++;
-            continue;
-          }
-
-          const { wrote: didWrite, reason } = await safeWriteFile(outputPath, content, false);
-          if (didWrite) {
-            wrote++;
+            for (const warning of nestedResult.warnings) {
+              reporter.update(`[${name}] Warning: ${warning}`);
+            }
           } else {
-            skipped++;
-            reporter.update(
-              `[${name}] Skipped: ${reason === "exists" ? "file already exists" : (reason ?? "unknown")}`
-            );
+            const outputPath = path.join(workspacePath, ".github", "copilot-instructions.md");
+
+            reporter.update(`[${name}] Generating…`);
+            const content = await generateCopilotInstructions({
+              repoPath: workspacePath,
+              model
+            });
+
+            if (!content) {
+              skipped++;
+              continue;
+            }
+
+            const { wrote: didWrite, reason } = await safeWriteFile(outputPath, content, false);
+            if (didWrite) {
+              wrote++;
+            } else {
+              skipped++;
+              reporter.update(
+                `[${name}] Skipped: ${reason === "exists" ? "file already exists" : (reason ?? "unknown")}`
+              );
+            }
           }
         } catch (err) {
           failed++;
