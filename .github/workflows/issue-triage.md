@@ -67,8 +67,9 @@ repository context. Do not invent missing details.
 
 Complete the workflow in at most five tool calls:
 
-1. Use the issue context already provided in the prompt. Do not fetch the
-   current issue again.
+1. Use the issue context already provided in the prompt. If the prompt omits
+   the issue title or body, fetch the current issue exactly once with the
+   GitHub read tools. Do not re-fetch it after its content is available.
 2. Search once for up to three likely duplicates only when the issue is
    complete enough to compare.
 3. Submit only the necessary `add_labels`, `set_issue_type`, and `add_comment`
