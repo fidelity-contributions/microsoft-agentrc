@@ -96,9 +96,15 @@ export async function instructionsCommand(): Promise<void> {
     if (claudePick) claudeMd = claudePick.value;
   }
 
-  // Write strategy choice back to agentrc.config.json
+  // Write strategy choice back to agentrc.config.json, using the same location
+  // loadAgentrcConfig() reads from (repo root first, then .github/)
   try {
-    const configPath = path.join(workspacePath, "agentrc.config.json");
+    const rootConfigPath = path.join(workspacePath, "agentrc.config.json");
+    const githubConfigPath = path.join(workspacePath, ".github", "agentrc.config.json");
+    const configPath =
+      !fs.existsSync(rootConfigPath) && fs.existsSync(githubConfigPath)
+        ? githubConfigPath
+        : rootConfigPath;
     let existing: Record<string, unknown> = {};
     try {
       const raw = await fs.promises.readFile(configPath, "utf-8");
